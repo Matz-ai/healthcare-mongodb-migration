@@ -306,7 +306,7 @@ class MongoDBMigration:
         
         checks = {
             'count': self.collection.count_documents({}),
-            'indexes': len(self.collection.list_indexes().to_list()),
+            'indexes': len(list(self.collection.list_indexes())),
             'conditions': len(self.collection.distinct('medical_condition')),
             'blood_types': len(self.collection.distinct('blood_type')),
             'avg_billing': None
