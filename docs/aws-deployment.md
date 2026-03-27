@@ -1,248 +1,162 @@
-# Déploiement MongoDB sur AWS
+# Déploiement MongoDB sur AWS — Étude comparative
 
-## 🎯 Objectif
+## Objectif
 
-Identifier la meilleure solution pour déployer MongoDB sur AWS pour notre client healthcare, en considérant :
-- Scalabilité horizontale
-- Haute disponibilité
-- Sécurité des données médicales (HIPAA)
-- Coût optimisé
+Documenter les options disponibles pour héberger MongoDB sur AWS dans le cadre du projet de migration healthcare, couvrant les services managés, le stockage, la conteneurisation, les sauvegardes et les coûts.
 
 ---
 
-## 📊 Comparaison des Options
+## 1. Amazon S3
 
-### 1. Amazon DocumentDB
+**Rôle** : Stockage objet pour les données brutes, backups et exports.
 
-**Description** : Service managé compatible MongoDB (sous-ensemble de fonctionnalités)
+S3 n'est pas une base de données mais joue un rôle clé dans l'écosystème de données :
+
+| Utilisation | Description |
+|---|---|
+| **Stockage CSV source** | Héberger le dataset d'origine (8 Mo) de manière durable |
+| **Backups MongoDB** | Stocker les dumps `mongodump` ou snapshots automatiques |
+| **Exports analytiques** | Exporter des résultats d'agrégation pour d'autres outils BI |
+| **Logs d'audit** | Archiver les logs d'accès pour conformité HIPAA |
+
+**Classes de stockage recommandées** :
+- `S3 Standard` : Pour les backups récents (accès fréquent)
+- `S3 Glacier` : Pour les archives long terme (rétention HIPAA 7 ans)
+
+**Coût estimé** : ~0.023 $/Go/mois (Standard), ~0.004 $/Go/mois (Glacier)
+
+---
+
+## 2. Amazon DocumentDB (compatible MongoDB)
+
+**Description** : Service de base de données managé par AWS, compatible avec l'API MongoDB (jusqu'à la version 5.0).
 
 | Avantages | Inconvénients |
-|-----------|---------------|
-| ✅ Fully managed (pas de maintenance) | ❌ Compatibilité partielle avec MongoDB |
-| ✅ HA intégrée (multi-AZ) | ❌ Pas d'aggregation pipeline complète |
-| ✅ Backup automatique | ❌ Coût plus élevé |
-| ✅ Intégration AWS native | ❌ Pas de sharding natif |
-| ✅ HIPAA eligible | ❌ Version MongoDB souvent en retard |
+|---|---|
+| Fully managed (pas de maintenance serveur) | Compatibilité MongoDB partielle |
+| Haute disponibilité multi-AZ intégrée | Aggregation pipeline limitée |
+| Backup automatique (jusqu'à 35 jours) | Pas de sharding natif |
+| Intégration native AWS (IAM, CloudWatch) | Version MongoDB en retard |
+| HIPAA eligible | Coût plus élevé qu'un self-hosted |
 
-**Use case** : Applications simples, compatibilité MongoDB non critique
+> **Note** : Amazon RDS ne supporte **pas** MongoDB nativement. RDS est conçu pour les bases relationnelles (MySQL, PostgreSQL, etc.). Pour un équivalent managé MongoDB sur AWS, la solution officielle est **DocumentDB** ou **MongoDB Atlas** hébergé sur infrastructure AWS.
 
-**Coût estimé** (db.r5.large, multi-AZ) : ~300-400€/mois
+**Coût estimé** (instance `db.r5.large`, multi-AZ) :
+
+| Ressource | Coût mensuel |
+|---|---|
+| Instance (2 nœuds) | ~280 € |
+| Stockage (50 Go) | ~5 € |
+| I/O | ~15 € |
+| **Total** | **~300 €/mois** |
 
 ---
 
-### 2. MongoDB Atlas sur AWS
+## 3. Amazon ECS — MongoDB conteneurisé
 
-**Description** : Service DBaaS officiel MongoDB, hébergé sur AWS
+**Description** : Déploiement de MongoDB dans des conteneurs Docker orchestrés par ECS (Elastic Container Service), reproduisant l'architecture locale du projet.
+
+### Architecture proposée
+
+```
+┌──────────────────────────────────────────────┐
+│              Amazon ECS Cluster              │
+├──────────────────────────────────────────────┤
+│  ┌────────────────┐  ┌────────────────────┐  │
+│  │  Task MongoDB  │  │  Task Migration    │  │
+│  │  (mongo:7.0)   │  │  (python:3.11)     │  │
+│  │  Port 27017    │  │  Script migrate.py │  │
+│  └───────┬────────┘  └────────────────────┘  │
+│          │                                    │
+│  ┌───────┴────────┐                          │
+│  │  EBS Volume    │  (persistance données)   │
+│  └────────────────┘                          │
+└──────────────────────────────────────────────┘
+```
 
 | Avantages | Inconvénients |
-|-----------|---------------|
-| ✅ MongoDB 100% natif | ❌ Vendor lock-in MongoDB |
-| ✅ Toutes les fonctionnalités | ❌ Coût élevé |
-| ✅ Sharding automatique | ❌ Dépendance tierce |
-| ✅ Monitoring avancé | ❌ Moins d'intégration AWS native |
-| ✅ HIPAA compliant | |
-| ✅ Global clusters | |
+|---|---|
+| Même `docker-compose.yml` qu'en local | Complexité opérationnelle |
+| Scalabilité automatique (Fargate) | Gestion stateful containers délicate |
+| Intégration CI/CD avec ECR | Expertise ECS/Fargate requise |
+| Portable et reproductible | Monitoring à configurer manuellement |
 
-**Use case** : Applications complexes, besoin features MongoDB avancées
+**Mode de lancement recommandé** : **Fargate** (serverless, pas de gestion d'instances EC2)
 
-**Coût estimé** (M10, 3 nodes) : ~400-600€/mois
+**Coût estimé** (Fargate, 2 vCPU, 4 Go RAM) :
 
----
-
-### 3. Amazon EC2 + MongoDB Self-Hosted
-
-**Description** : Installation MongoDB manuelle sur instances EC2
-
-| Avantages | Inconvénients |
-|-----------|---------------|
-| ✅ Contrôle total | ❌ Maintenance manuelle (patches, backups) |
-| ✅ MongoDB 100% natif | ❌ Configuration HA complexe |
-| ✅ Coût maîtrisé | ❌ Expertise ops nécessaire |
-| ✅ Flexible | ❌ Temps d'ingénierie important |
-| ✅ Docker-friendly | ❌ Monitoring à configurer |
-
-**Use case** : Équipe technique expérimentée, contrôle total requis
-
-**Coût estimé** (3x t3.medium, EBS, ELB) : ~150-250€/mois
+| Ressource | Coût mensuel |
+|---|---|
+| Compute Fargate | ~120 € |
+| Stockage EBS (50 Go) | ~5 € |
+| NAT Gateway | ~35 € |
+| **Total** | **~160 €/mois** |
 
 ---
 
-### 4. Amazon ECS/EKS + MongoDB (Containers)
+## 4. Sauvegardes et surveillance
 
-**Description** : MongoDB conteneurisé avec orchestration AWS
+### Stratégie de sauvegarde
 
-| Avantages | Inconvénients |
-|-----------|---------------|
-| ✅ Scalabilité automatique | ❌ Complexité opérationnelle |
-| ✅ Infrastructure as Code | ❌ Stateful containers = complexe |
-| ✅ Intégration CI/CD | ❌ Expertise Kubernetes/ECS |
-| ✅ Portable | ❌ Coût de l'orchestrateur |
-| ✅ Docker natif | |
+| Méthode | Fréquence | Rétention | Stockage |
+|---|---|---|---|
+| Snapshots automatiques (DocumentDB) | Quotidien | 35 jours | Inclus |
+| `mongodump` planifié (ECS) | Quotidien | 90 jours | S3 Standard |
+| Export CSV archivage | Mensuel | 7 ans (HIPAA) | S3 Glacier |
 
-**Use case** : Architecture microservices, DevOps mature
+### Surveillance avec CloudWatch
 
-**Coût estimé** (ECS Fargate + EBS) : ~200-350€/mois
+| Métrique | Seuil d'alerte | Action |
+|---|---|---|
+| CPU utilisation | > 80 % | Scale up instance |
+| Connexions actives | > 500 | Vérifier les connexions orphelines |
+| Espace disque | > 85 % | Augmenter le volume EBS |
+| Latence requêtes | > 100 ms | Vérifier les indexes |
+| Réplication lag | > 10 s | Vérifier la santé du replica set |
 
----
-
-## 🏆 Recommandation
-
-### Pour ce client Healthcare : **MongoDB Atlas sur AWS**
-
-**Justification** :
-
-1. **Sécurité** : HIPAA compliance certifiée, chiffrement end-to-end
-2. **Simplicité** : Pas de maintenance Ops, l'équipe se concentre sur le métier
-3. **Scalabilité** : Sharding automatique quand le volume augmentera
-4. **Backup** : Point-in-time recovery inclus
-5. **Support** : Support MongoDB professionnel
-
-**Architecture recommandée** :
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                     AWS CLOUD                          │
-├─────────────────────────────────────────────────────────┤
-│  ┌───────────────────────────────────────────────────┐ │
-│  │              MongoDB Atlas Cluster                │ │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐        │ │
-│  │  │ Primary  │  │ Secondary│  │ Secondary│        │ │
-│  │  │ eu-west-1│  │ eu-west-1│  │ eu-west-1│        │ │
-│  │  └──────────┘  └──────────┘  └──────────┘        │ │
-│  │         │              │              │           │ │
-│  │         └──────────────┼──────────────┘           │ │
-│  │                        │                          │ │
-│  │                   ┌────┴────┐                     │ │
-│  │                   │  ARBITER │                     │ │
-│  │                   └─────────┘                     │ │
-│  └───────────────────────────────────────────────────┘ │
-│                          │                              │
-│              ┌───────────┼───────────┐                  │
-│              ▼           ▼           ▼                  │
-│        ┌─────────┐ ┌─────────┐ ┌─────────┐             │
-│        │  App 1  │ │  App 2  │ │  App 3  │             │
-│        │ (EC2)   │ │ (ECS)   │ │ (Lambda)│             │
-│        └─────────┘ └─────────┘ └─────────┘             │
-│                                                         │
-│  ┌───────────────────────────────────────────────────┐ │
-│  │              AMAZON S3 (Backups)                  │ │
-│  │         • Snapshots Atlas                         │ │
-│  │         • Exports CSV                             │ │
-│  │         • Logs d'audit                            │ │
-│  └───────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────┘
-```
+**Outils de surveillance** :
+- **CloudWatch** : Métriques infrastructure et alertes SNS
+- **MongoDB Atlas** (si Atlas) : Dashboard intégré avec Performance Advisor
+- **CloudTrail** : Audit des accès API pour conformité HIPAA
 
 ---
 
-## 📋 Plan de Migration vers le Cloud
+## 5. Tarifications AWS — Synthèse comparative
 
-### Phase 1 : Préparation (1 semaine)
-- [ ] Créer compte MongoDB Atlas
-- [ ] Configurer VPC peering avec AWS
-- [ ] Définir règles de sécurité (IP whitelist)
-- [ ] Configurer encryption at rest
+| Solution | Type | Coût mensuel | Maintenance | Recommandé pour |
+|---|---|---|---|---|
+| **DocumentDB** | Managé | ~300 € | Faible | Équipe réduite, besoins simples |
+| **MongoDB Atlas sur AWS** | DBaaS | ~450 € | Nulle | Besoin features MongoDB complètes |
+| **ECS + Fargate** | Conteneur | ~160 € | Moyenne | Architecture microservices existante |
+| **EC2 self-hosted** | Manuel | ~150 € | Élevée | Budget serré, équipe ops expérimentée |
 
-### Phase 2 : Déploiement (3 jours)
-- [ ] Créer cluster M10 (3 nodes)
-- [ ] Configurer replication (multi-AZ)
-- [ ] Activer backup continu
-- [ ] Créer users/roles
+### Détail des coûts cachés à anticiper
 
-### Phase 3 : Migration données (1 semaine)
-- [ ] Export données locales
-- [ ] Import vers Atlas (mongodump/mongorestore)
-- [ ] Vérifier intégrité
-- [ ] Tests de performance
-
-### Phase 4 : Cutover (1 jour)
-- [ ] Basculer applications
-- [ ] Vérifier connexions
-- [ ] Monitorer métriques
+| Poste | Estimation |
+|---|---|
+| Data transfer sortant | ~0.09 $/Go après 1 Go gratuit |
+| Backup S3 (100 Go) | ~2.30 $/mois |
+| CloudWatch Logs | ~0.50 $/Go ingéré |
+| NAT Gateway | ~35 $/mois (si VPC privé) |
 
 ---
 
-## 💰 Estimation des Coûts (mensuel)
+## Recommandation
 
-| Ressource | Config | Coût |
-|-----------|--------|------|
-| MongoDB Atlas | M10 (3 nodes) | ~450€ |
-| Data Transfer | 100GB/mois | ~10€ |
-| Backup Storage | 50GB | ~5€ |
-| CloudWatch Logs | Standard | ~20€ |
-| **TOTAL** | | **~485€/mois** |
+Pour ce projet healthcare, **MongoDB Atlas sur AWS** est la solution recommandée :
 
----
+1. **HIPAA compliance** certifiée nativement
+2. **Zéro maintenance** — l'équipe se concentre sur le métier
+3. **Backup continu** avec point-in-time recovery
+4. **Sharding automatique** si le volume de données augmente
+5. **Monitoring intégré** sans configuration supplémentaire
 
-## 🔒 Considérations Sécurité
-
-### HIPAA Compliance
-- ✅ MongoDB Atlas certifié HIPAA
-- ✅ Encryption at rest (AES-256)
-- ✅ Encryption in transit (TLS 1.2+)
-- ✅ Audit logs conservés 7 ans
-- ✅ BAAs (Business Associate Agreements) disponibles
-
-### Configuration Recommandée
-```javascript
-// Network Security
-IP Whitelist: ["VPC CIDR", "Bureau IP"]
-VPC Peering: Enabled
-Private Endpoints: Enabled
-
-// Encryption
-Encryption at Rest: AWS KMS
-Encryption in Transit: TLS 1.3
-Field Level Encryption: Pour PII
-
-// Access Control
-Database Access: SCRAM + X.509
-LDAP/AD: Intégration possible
-MFA: Obligatoire pour console
-```
+**Alternative budget** : ECS + Fargate (~160 €/mois) avec backups `mongodump` vers S3, acceptable si l'équipe a les compétences DevOps.
 
 ---
 
-## 🚀 Alternative Économique : EC2 + Docker
+## Références
 
-Si le budget est contraint, cette architecture offre 60% d'économie :
-
-```yaml
-# docker-compose.prod.yml pour AWS EC2
-version: '3.8'
-
-services:
-  mongo-primary:
-    image: mongo:7.0
-    command: mongod --replSet rs0 --bind_ip_all
-    volumes:
-      - mongo_primary:/data/db
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-    
-  mongo-secondary:
-    image: mongo:7.0
-    command: mongod --replSet rs0 --bind_ip_all
-    volumes:
-      - mongo_secondary:/data/db
-      
-  mongo-arbiter:
-    image: mongo:7.0
-    command: mongod --replSet rs0 --bind_ip_all --port 27017
-    volumes:
-      - mongo_arbiter:/data/db
-```
-
-**Coût** : ~180€/mois (3x t3.medium + EBS)
-**Inconvénient** : Maintenance manuelle requise
-
----
-
-## 📚 Références
-
-- [MongoDB Atlas on AWS](https://www.mongodb.com/atlas/aws)
 - [Amazon DocumentDB](https://aws.amazon.com/documentdb/)
-- [HIPAA on AWS](https://aws.amazon.com/compliance/hipaa/)
-- [MongoDB Security Checklist](https://docs.mongodb.com/manual/administration/security-checklist/)
+- [Amazon ECS](https://aws.amazon.com/ecs/)
+- [Tarification S3](https://aws.amazon.com/s3/pricing/)

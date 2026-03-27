@@ -24,6 +24,7 @@ Thumbs.db
 # Data (sauf exemples)
 *.csv
 !data/.gitkeep
+pouridiot.md
 
 # MongoDB
 mongo_data/

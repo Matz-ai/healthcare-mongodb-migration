@@ -1,158 +1,69 @@
 #!/usr/bin/env python3
 """
-Tests unitaires pour la migration MongoDB
+Tests pour la migration MongoDB
 """
 
 import pytest
-import os
-import sys
-from datetime import datetime
-
-# Ajoute le dossier src au path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-
-from migrate import DataValidator, MongoDBMigration
+from migrate import generate_id, transform_row
 
 
-class TestDataValidator:
-    """Tests de validation des données"""
-    
-    def test_valid_patient(self):
-        """Test une ligne valide"""
-        row = {
-            'Name': 'John Doe',
-            'Age': '45',
-            'Gender': 'Male',
-            'Blood Type': 'A+',
-            'Medical Condition': 'Diabetes',
-            'Date of Admission': '2024-01-15',
-            'Doctor': 'Dr. Smith',
-            'Hospital': 'General Hospital',
-            'Insurance Provider': 'Blue Cross',
-            'Billing Amount': '12345.67',
-            'Room Number': '101',
-            'Admission Type': 'Elective',
-            'Discharge Date': '2024-01-20',
-            'Medication': 'Insulin',
-            'Test Results': 'Normal'
-        }
-        
-        is_valid, error, data = DataValidator.validate_patient(row)
-        
-        assert is_valid is True
-        assert error is None
-        assert data is not None
-        assert data['name'] == 'John Doe'
-        assert data['age'] == 45
-        assert data['gender'] == 'Male'
-    
-    def test_invalid_age(self):
-        """Test âge invalide"""
-        row = {
-            'Name': 'Test',
-            'Age': 'invalid',
-            'Gender': 'Male',
-            'Blood Type': 'A+',
-            'Medical Condition': 'Diabetes',
-            'Date of Admission': '2024-01-15',
-            'Doctor': 'Dr. X',
-            'Hospital': 'Hospital',
-            'Insurance Provider': 'Insurance',
-            'Billing Amount': '1000',
-            'Room Number': '101',
-            'Admission Type': 'Elective',
-            'Discharge Date': '2024-01-20',
-            'Medication': 'Med',
-            'Test Results': 'Normal'
-        }
-        
-        is_valid, error, data = DataValidator.validate_patient(row)
-        
-        assert is_valid is False
-        assert 'Age' in error or 'non numérique' in error
-    
-    def test_invalid_gender(self):
-        """Test genre invalide"""
-        row = {
-            'Name': 'Test',
-            'Age': '30',
-            'Gender': 'Invalid',
-            'Blood Type': 'A+',
-            'Medical Condition': 'Diabetes',
-            'Date of Admission': '2024-01-15',
-            'Doctor': 'Dr. X',
-            'Hospital': 'Hospital',
-            'Insurance Provider': 'Insurance',
-            'Billing Amount': '1000',
-            'Room Number': '101',
-            'Admission Type': 'Elective',
-            'Discharge Date': '2024-01-20',
-            'Medication': 'Med',
-            'Test Results': 'Normal'
-        }
-        
-        is_valid, error, data = DataValidator.validate_patient(row)
-        
-        assert is_valid is False
-        assert 'Genre' in error
-    
-    def test_invalid_blood_type(self):
-        """Test groupe sanguin invalide"""
-        row = {
-            'Name': 'Test',
-            'Age': '30',
-            'Gender': 'Male',
-            'Blood Type': 'Z+',
-            'Medical Condition': 'Diabetes',
-            'Date of Admission': '2024-01-15',
-            'Doctor': 'Dr. X',
-            'Hospital': 'Hospital',
-            'Insurance Provider': 'Insurance',
-            'Billing Amount': '1000',
-            'Room Number': '101',
-            'Admission Type': 'Elective',
-            'Discharge Date': '2024-01-20',
-            'Medication': 'Med',
-            'Test Results': 'Normal'
-        }
-        
-        is_valid, error, data = DataValidator.validate_patient(row)
-        
-        assert is_valid is False
-        assert 'sanguin' in error
+class TestTransformRow:
+    """Test de la transformation CSV → document"""
+
+    SAMPLE_ROW = {
+        'Name': 'John Doe',
+        'Age': '45',
+        'Gender': 'Male',
+        'Blood Type': 'A+',
+        'Medical Condition': 'Diabetes',
+        'Date of Admission': '2024-01-15',
+        'Doctor': 'Dr. Smith',
+        'Hospital': 'General Hospital',
+        'Insurance Provider': 'Blue Cross',
+        'Billing Amount': '12345.67',
+        'Room Number': '101',
+        'Admission Type': 'Elective',
+        'Discharge Date': '2024-01-20',
+        'Medication': 'Insulin',
+        'Test Results': 'Normal'
+    }
+
+    def test_transform_types(self):
+        """Vérifie les types après transformation"""
+        doc = transform_row(self.SAMPLE_ROW)
+        assert isinstance(doc['age'], int)
+        assert isinstance(doc['billing_amount'], float)
+        assert isinstance(doc['room_number'], int)
+        assert isinstance(doc['name'], str)
+
+    def test_transform_values(self):
+        """Vérifie les valeurs après transformation"""
+        doc = transform_row(self.SAMPLE_ROW)
+        assert doc['name'] == 'John Doe'
+        assert doc['age'] == 45
+        assert doc['billing_amount'] == 12345.67
+        assert doc['gender'] == 'Male'
+
+    def test_patient_id_generated(self):
+        """Vérifie qu'un patient_id est bien généré"""
+        doc = transform_row(self.SAMPLE_ROW)
+        assert 'patient_id' in doc
+        assert len(doc['patient_id']) == 12
 
 
-class TestMongoDBMigration:
-    """Tests de la classe de migration"""
-    
-    @pytest.fixture
-    def migration(self):
-        """Fixture pour créer une instance de migration"""
-        return MongoDBMigration()
-    
-    def test_initialization(self, migration):
-        """Test l'initialisation"""
-        assert migration.client is None
-        assert migration.db is None
-        assert migration.collection is None
-        assert migration.stats['total_read'] == 0
-    
-    def test_stats_structure(self, migration):
-        """Test la structure des stats"""
-        expected_keys = ['total_read', 'valid', 'invalid', 'duplicates', 'inserted', 'errors']
-        for key in expected_keys:
-            assert key in migration.stats
+class TestDuplicateDetection:
+    """Test de la détection de doublons"""
 
+    def test_same_patient_same_id(self):
+        """Deux lignes identiques donnent le même ID"""
+        row = {'Name': 'Test', 'Age': '30', 'Date of Admission': '2024-01-01'}
+        assert generate_id(row) == generate_id(row)
 
-def test_environment_variables():
-    """Test que les variables d'environnement sont définies (ou valeurs par défaut)"""
-    from migrate import MONGO_CONFIG
-    
-    assert 'host' in MONGO_CONFIG
-    assert 'port' in MONGO_CONFIG
-    assert 'username' in MONGO_CONFIG
-    assert 'password' in MONGO_CONFIG
-    assert 'database' in MONGO_CONFIG
+    def test_different_patients_different_ids(self):
+        """Deux patients différents donnent des IDs différents"""
+        row1 = {'Name': 'Alice', 'Age': '30', 'Date of Admission': '2024-01-01'}
+        row2 = {'Name': 'Bob', 'Age': '25', 'Date of Admission': '2024-02-01'}
+        assert generate_id(row1) != generate_id(row2)
 
 
 if __name__ == '__main__':

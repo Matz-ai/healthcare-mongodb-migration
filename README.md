@@ -1,175 +1,131 @@
 # Healthcare MongoDB Migration
 
-## 📋 Contexte
+## Contexte
 
-Migration d'un dataset médical de **55 500 patients** vers MongoDB avec conteneurisation Docker pour garantir la portabilité et la scalabilité.
+Migration d'un dataset médical de **55 500 patients** (CSV) vers MongoDB, conteneurisé avec Docker.
 
-## 🏗️ Architecture
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    DOCKER COMPOSE                           │
-├─────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐         ┌──────────────────────────┐     │
-│  │   MongoDB    │◄────────┤    Migration Service     │     │
-│  │   :27017     │         │    (Python Script)       │     │
-│  │              │         │                          │     │
-│  │  • healthcare│         │  • Validation données    │     │
-│  │  • patients  │         │  • Insertion batch       │     │
-│  │  • indexes   │         │  • Tests d'intégrité     │     │
-│  └──────────────┘         └──────────────────────────┘     │
-│         │                                                  │
-│         ▼                                                  │
-│  ┌──────────────┐                                         │
-│  │MongoDB Volume│  (Persistance données)                   │
-│  └──────────────┘                                         │
-└─────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────┐
+│                  DOCKER COMPOSE                    │
+├────────────────────────────────────────────────────┤
+│  ┌──────────────────┐    ┌──────────────────────┐  │
+│  │   MongoDB 7.0    │◄───┤  Migration Service   │  │
+│  │   :27017         │    │  (Python 3.11)       │  │
+│  │                  │    │                      │  │
+│  │  • healthcare DB │    │  • Dédoublonnage     │  │
+│  │  • patients col. │    │  • Insertion batch   │  │
+│  │  • auth RBAC     │    │  • Vérification      │  │
+│  └────────┬─────────┘    └──────────────────────┘  │
+│           │                                        │
+│   ┌───────┴────────┐  ┌────────────────────────┐   │
+│   │  Volume MongoDB│  │  Volume CSV (read-only)│   │
+│   └────────────────┘  └────────────────────────┘   │
+└────────────────────────────────────────────────────┘
 ```
 
-## 📊 Schéma de la Base de Données
+## Schéma de la base de données
 
 ### Collection : `patients`
 
 ```json
 {
-  "_id": ObjectId,
-  "patient_id": "string (unique)",
+  "_id": "ObjectId",
+  "patient_id": "string (unique, clé MD5)",
   "name": "string",
   "age": "int",
-  "gender": "string [Male|Female]",
+  "gender": "string",
   "blood_type": "string",
   "medical_condition": "string",
-  "admission": {
-    "date": "ISODate",
-    "type": "string [Elective|Emergency|Urgent]",
-    "room_number": "int"
-  },
-  "discharge_date": "ISODate",
+  "admission_date": "string",
+  "admission_type": "string",
+  "discharge_date": "string",
+  "room_number": "int",
   "doctor": "string",
   "hospital": "string",
   "insurance_provider": "string",
   "billing_amount": "double",
   "medication": "string",
-  "test_results": "string [Normal|Abnormal|Inconclusive]",
-  "metadata": {
-    "imported_at": "ISODate",
-    "batch_id": "string",
-    "validation_status": "string"
-  }
+  "test_results": "string"
 }
 ```
 
-### Indexes créés
+Un index unique est créé sur `patient_id` pour empêcher les doublons.
 
-- `patient_id` : Unique
-- `medical_condition` : Pour filtres rapides
-- `admission.date` : Pour requêtes temporelles
-- `hospital` : Pour regroupements
-- `doctor` : Pour recherches par praticien
+## Authentification & Rôles
 
-## 🔐 Authentification & Rôles
+Les utilisateurs sont créés automatiquement au premier lancement via `mongo-init/init-mongo.js` :
 
 | Utilisateur | Rôle | Permissions |
-|-------------|------|-------------|
-| `admin` | root | Tous les droits |
-| `migrate_user` | readWrite healthcare | Lecture/Écriture sur DB healthcare |
-| `readonly_user` | read healthcare | Lecture seule sur DB healthcare |
+|---|---|---|
+| `admin` | root | Tous les droits (créé par Docker) |
+| `migrate_user` | readWrite + dbAdmin | Lecture/écriture sur la DB healthcare |
+| `readonly_user` | read | Lecture seule |
 
-## 🚀 Démarrage Rapide
+## Logique du script de migration
+
+Le script `src/migrate.py` effectue 3 opérations :
+
+1. **Dédoublonnage** : chaque patient reçoit un ID unique (hash MD5 de nom + âge + date d'admission). Si deux lignes produisent le même ID, seule la première est conservée.
+
+2. **Insertion par batch** : les documents sont insérés par paquets de 1 000 pour optimiser les performances.
+
+3. **Vérification** : après la migration, le script compare le nombre de documents en base avec le nombre attendu.
+
+## Démarrage rapide
 
 ### Prérequis
-- Docker & Docker Compose installés
-- Git (pour versionnement)
+- Docker & Docker Compose
 
-### Installation
+### Lancer le projet
 
 ```bash
-# 1. Cloner le projet
+# Cloner le dépôt
 git clone <repo-url>
 cd healthcare-mongodb
 
-# 2. Lancer MongoDB
+# Démarrer MongoDB
 docker-compose up -d mongo
 
-# 3. Attendre l'initialisation (10s)
+# Attendre l'initialisation (~10s)
 sleep 10
 
-# 4. Lancer la migration
+# Lancer la migration
 docker-compose run --rm migration
 
-# 5. Vérifier l'importation
-docker-compose exec mongo mongosh -u migrate_user -p migrate_pass --authenticationDatabase healthcare --eval "db.patients.countDocuments()"
+# Vérifier le résultat
+docker-compose exec mongo mongosh -u migrate_user -p migrate_pass \
+  --authenticationDatabase healthcare \
+  --eval "db.patients.countDocuments()"
 ```
 
-### Résultat attendu
-```
-✅ Migration réussie!
-📊 55 500 documents insérés
-📈 534 doublons ignorés
-⏱️ Durée: ~30 secondes
-```
-
-## 📁 Structure du Projet
+## Structure du projet
 
 ```
 healthcare-mongodb/
 ├── data/
-│   └── healthcare_dataset.csv    # Dataset source
+│   └── healthcare_dataset.csv      # Dataset source (55 500 lignes)
 ├── src/
-│   ├── migrate.py                # Script de migration principal
-│   └── test_migration.py         # Tests unitaires
+│   ├── migrate.py                  # Script de migration
+│   └── test_migration.py           # Tests unitaires
 ├── mongo-init/
-│   └── init-mongo.js             # Création users/roles/indexes
+│   └── init-mongo.js               # Création users et rôles
 ├── docs/
-│   ├── aws-deployment.md         # Recherche AWS
-│   └── presentation.md           # Structure présentation
-├── docker-compose.yml            # Orchestration containers
-├── requirements.txt              # Dépendances Python
-├── Dockerfile                    # Image migration
-└── README.md                     # Ce fichier
+│   ├── aws-deployment.md           # Étude déploiement AWS
+│   └── presentation.md             # Support de présentation
+├── docker-compose.yml              # Orchestration des conteneurs
+├── Dockerfile                      # Image du service migration
+├── requirements.txt                # Dépendances Python
+└── README.md
 ```
 
-## 🧪 Tests
+## Tests
 
 ```bash
-# Lancer les tests
-docker-compose run --rm migration pytest test_migration.py -v
+docker-compose run --rm migration pytest src/test_migration.py -v
 ```
 
-Tests inclus :
-- ✅ Connexion MongoDB
-- ✅ Intégrité des données (count, doublons)
-- ✅ Validation des types
-- ✅ Performance des requêtes (indexes)
+## Déploiement AWS
 
-## ☁️ Déploiement AWS
-
-Voir [docs/aws-deployment.md](docs/aws-deployment.md) pour :
-- Amazon DocumentDB
-- MongoDB Atlas sur AWS
-- Déploiement EC2 avec Docker
-- Architecture recommandée
-
-## 📈 Performance
-
-| Métrique | Valeur |
-|----------|--------|
-| Temps de migration | ~30s |
-| Insertion batch | 1000 docs/batch |
-| Index créés | 5 |
-| Doublons détectés | 534 |
-
-## 📝 Journal de Bord
-
-| Date | Étape | Statut |
-|------|-------|--------|
-| 25/03 | Analyse dataset | ✅ |
-| 25/03 | Création architecture Docker | ✅ |
-| 25/03 | Script migration Python | ✅ |
-| 25/03 | Authentification MongoDB | ✅ |
-| 25/03 | Tests d'intégrité | ✅ |
-| 25/03 | Documentation AWS | ✅ |
-
-## 👤 Auteur
-
-Mission réalisée dans le cadre du projet de migration Big Data pour client healthcare.
+Voir [docs/aws-deployment.md](docs/aws-deployment.md) pour l'étude comparative : DocumentDB, ECS, S3, tarifications.
