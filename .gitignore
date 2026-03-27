@@ -16,7 +16,7 @@ build/
 .idea/
 *.swp
 *.swo
-
+consigne.md
 # OS
 .DS_Store
 Thumbs.db
