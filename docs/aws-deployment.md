@@ -160,3 +160,5 @@ Pour ce projet healthcare, **MongoDB Atlas sur AWS** est la solution recommandé
 - [Amazon DocumentDB](https://aws.amazon.com/documentdb/)
 - [Amazon ECS](https://aws.amazon.com/ecs/)
 - [Tarification S3](https://aws.amazon.com/s3/pricing/)
+
+.
