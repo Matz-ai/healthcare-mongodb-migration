@@ -77,6 +77,7 @@ Le script `src/migrate.py` effectue 3 opérations :
 
 ### Prérequis
 - Docker & Docker Compose
+- Le fichier `data/healthcare_dataset.csv` (non inclus dans le repo, à placer manuellement)
 
 ### Lancer le projet
 
@@ -84,6 +85,9 @@ Le script `src/migrate.py` effectue 3 opérations :
 # Cloner le dépôt
 git clone <repo-url>
 cd healthcare-mongodb
+
+# Placer le dataset dans data/
+cp /chemin/vers/healthcare_dataset.csv data/
 
 # Démarrer MongoDB
 docker-compose up -d mongo
@@ -105,18 +109,18 @@ docker-compose exec mongo mongosh -u migrate_user -p migrate_pass \
 ```
 healthcare-mongodb/
 ├── data/
-│   └── healthcare_dataset.csv      # Dataset source (55 500 lignes)
+│   └── .gitkeep                    # Le CSV est gitignored, à ajouter manuellement
 ├── src/
 │   ├── migrate.py                  # Script de migration
 │   └── test_migration.py           # Tests unitaires
 ├── mongo-init/
 │   └── init-mongo.js               # Création users et rôles
 ├── docs/
-│   ├── aws-deployment.md           # Étude déploiement AWS
-│   └── presentation.md             # Support de présentation
+│   └── aws-deployment.md           # Étude déploiement AWS
 ├── docker-compose.yml              # Orchestration des conteneurs
 ├── Dockerfile                      # Image du service migration
 ├── requirements.txt                # Dépendances Python
+├── .gitignore
 └── README.md
 ```
 
