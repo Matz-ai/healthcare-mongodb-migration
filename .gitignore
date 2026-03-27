@@ -16,7 +16,7 @@ build/
 .idea/
 *.swp
 *.swo
-consigne.md
+
 # OS
 .DS_Store
 Thumbs.db
@@ -25,6 +25,7 @@ Thumbs.db
 *.csv
 !data/.gitkeep
 pouridiot.md
+consigne.md
 
 # MongoDB
 mongo_data/
