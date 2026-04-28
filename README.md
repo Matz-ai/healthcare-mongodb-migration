@@ -130,6 +130,27 @@ healthcare-mongodb/
 docker-compose run --rm migration pytest src/test_migration.py -v
 ```
 
+## Migration vers MongoDB Atlas (Cloud)
+
+Un script d'import vers MongoDB Atlas est disponible pour déployer la base en cloud.
+
+### Prérequis
+- Compte MongoDB Atlas (gratuit)
+- Cluster M0 créé
+- Utilisateur et IP whitelist configurés
+
+### Utilisation
+
+```bash
+# Configurer la connexion dans import_to_atlas.py
+# Remplacer MONGO_URI par votre chaîne de connexion Atlas
+
+# Lancer l'import
+python import_to_atlas.py
+```
+
+Le script utilise la même logique de déduplication que la version Docker locale.
+
 ## Déploiement AWS
 
 Voir [docs/aws-deployment.md](docs/aws-deployment.md) pour l'étude comparative : DocumentDB, ECS, S3, tarifications.
