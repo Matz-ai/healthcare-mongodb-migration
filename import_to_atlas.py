@@ -3,11 +3,15 @@
 
 import csv
 import hashlib
+import os
 from pymongo import MongoClient
 from pymongo.errors import BulkWriteError
+from dotenv import load_dotenv
 
-MONGO_URI = "mongodb+srv://mathieuzinzenpro_db_user:hFs1Yy2WMzqJ3mzO@healthcare-cluster.gvtrztd.mongodb.net/?appName=healthcare-cluster"
-CSV_PATH = "data/healthcare_dataset.csv"
+load_dotenv()
+
+MONGO_URI = os.getenv("MONGO_ATLAS_URI")
+CSV_PATH = os.getenv("CSV_PATH", "data/healthcare_dataset.csv")
 BATCH_SIZE = 1000
 
 
