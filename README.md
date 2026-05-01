@@ -79,13 +79,23 @@ Le script `src/migrate.py` effectue 3 opérations :
 - Docker & Docker Compose
 - Le fichier `data/healthcare_dataset.csv` (non inclus dans le repo, à placer manuellement)
 
-### Lancer le projet
+### Configuration
 
 ```bash
 # Cloner le dépôt
 git clone <repo-url>
 cd healthcare-mongodb
 
+# Copier le template de configuration
+cp .env.example .env
+
+# Éditer .env avec vos vraies valeurs (jamais committé !)
+# nano .env
+```
+
+### Lancer le projet
+
+```bash
 # Placer le dataset dans data/
 cp /chemin/vers/healthcare_dataset.csv data/
 
@@ -99,7 +109,7 @@ sleep 10
 docker-compose run --rm migration
 
 # Vérifier le résultat
-docker-compose exec mongo mongosh -u migrate_user -p migrate_pass \
+docker-compose exec mongo mongosh -u migrate_user -p $MONGO_PASSWORD \
   --authenticationDatabase healthcare \
   --eval "db.patients.countDocuments()"
 ```

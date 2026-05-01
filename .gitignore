@@ -1,41 +1,25 @@
+# Environnement
+.env
+.env.local
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
 venv/
-.venv
-*.egg-info/
-dist/
-build/
+.venv/
+
+# Données
+data/*.csv
+!data/.gitkeep
 
 # IDE
 .vscode/
 .idea/
 *.swp
-*.swo
 
 # OS
 .DS_Store
 Thumbs.db
-
-# Data (sauf exemples)
-*.csv
-!data/.gitkeep
-pouridiot.md
-consigne.md
-docs/presentation.md
-
-# MongoDB
-mongo_data/
-*.log
-
-# Docker
-.dockerignore
-
-# Secrets
-.env.local
-.env.production
-secrets/
